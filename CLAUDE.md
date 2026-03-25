@@ -4,12 +4,17 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Build Commands
 
+Use the project's Maven settings file for all builds:
+
 ```bash
 # Install plugin to local Maven repository
-mvn clean install -DskipTests
+mvn -s D:\code\respository\settings-1.8.xml clean install -DskipTests
 
 # Build standalone fat JAR (for CLI usage outside Maven)
-mvn -Pstandalone clean package -DskipTests
+mvn -s D:\code\respository\settings-1.8.xml -Pstandalone clean package -DskipTests
+
+# Compile only
+mvn -s D:\code\respository\settings-1.8.xml compile
 ```
 
 ## Project Overview

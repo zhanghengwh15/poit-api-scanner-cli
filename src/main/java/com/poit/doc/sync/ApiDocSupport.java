@@ -26,6 +26,14 @@ public final class ApiDocSupport {
     private ApiDocSupport() {
     }
 
+    /**
+     * 内部类：用于累积模型的字段列表和描述。
+     */
+    private static class ModelFields {
+        String description = "";
+        List<Map<String, Object>> fields = new ArrayList<>();
+    }
+
     public static List<ApiDoc> flattenControllerDocs(List<ApiDoc> roots) {
         List<ApiDoc> out = new ArrayList<>();
         if (roots == null) {
@@ -53,19 +61,23 @@ public final class ApiDocSupport {
         }
     }
 
-    public static Map<String, String> extractModelsFromMethod(ApiMethodDoc method) {
-        Map<String, List<Map<String, Object>>> acc = new LinkedHashMap<>();
+    public static Map<String, ModelInfo> extractModelsFromMethod(ApiMethodDoc method) {
+        Map<String, ModelFields> acc = new LinkedHashMap<>();
         Set<String> completed = new LinkedHashSet<>();
         visitParamList(method.getRequestParams(), acc, completed);
         visitParamList(method.getResponseParams(), acc, completed);
         visitParamList(method.getPathParams(), acc, completed);
         visitParamList(method.getQueryParams(), acc, completed);
 
-        Map<String, String> jsonByClass = new LinkedHashMap<>();
-        for (Map.Entry<String, List<Map<String, Object>>> e : acc.entrySet()) {
-            jsonByClass.put(e.getKey(), GSON.toJson(e.getValue()));
+        Map<String, ModelInfo> result = new LinkedHashMap<>();
+        for (Map.Entry<String, ModelFields> e : acc.entrySet()) {
+            String fullName = e.getKey();
+            ModelFields mf = e.getValue();
+            String simpleName = ModelInfo.extractSimpleName(fullName);
+            String fieldsJson = GSON.toJson(mf.fields);
+            result.put(fullName, new ModelInfo(simpleName, mf.description, fieldsJson));
         }
-        return jsonByClass;
+        return result;
     }
 
     public static String resolveReqModelRef(ApiMethodDoc m) {
@@ -88,7 +100,7 @@ public final class ApiDocSupport {
         return firstObjectLikeRef(m.getResponseParams());
     }
 
-    private static void visitParamList(List<ApiParam> params, Map<String, List<Map<String, Object>>> acc, Set<String> completed) {
+    private static void visitParamList(List<ApiParam> params, Map<String, ModelFields> acc, Set<String> completed) {
         if (params == null) {
             return;
         }
@@ -97,7 +109,7 @@ public final class ApiDocSupport {
         }
     }
 
-    private static void walkParam(ApiParam p, Map<String, List<Map<String, Object>>> acc, Set<String> completed,
+    private static void walkParam(ApiParam p, Map<String, ModelFields> acc, Set<String> completed,
             Deque<String> stack) {
         if (p == null) {
             return;
@@ -113,16 +125,18 @@ public final class ApiDocSupport {
                 return;
             }
             stack.addLast(full);
-            List<Map<String, Object>> fields = new ArrayList<>();
+            ModelFields mf = new ModelFields();
+            // 从 ApiParam 的 desc 提取模型描述
+            mf.description = p.getDesc() != null ? p.getDesc() : "";
             List<ApiParam> children = p.getChildren();
             if (children != null) {
                 for (ApiParam c : children) {
-                    fields.add(fieldRow(c));
+                    mf.fields.add(fieldRow(c));
                     walkParam(c, acc, completed, stack);
                 }
             }
             stack.removeLast();
-            acc.putIfAbsent(full, fields);
+            acc.putIfAbsent(full, mf);
             completed.add(full);
             return;
         }
