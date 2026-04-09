@@ -1,4 +1,4 @@
-package com.poit.doc.sync;
+package com.poit.doc.sync.config;
 
 import com.ly.doc.builder.ApiDataBuilder;
 import com.ly.doc.model.ApiAllData;

@@ -1,4 +1,4 @@
-package com.poit.doc.sync;
+package com.poit.doc.sync.config;
 
 import java.util.List;
 

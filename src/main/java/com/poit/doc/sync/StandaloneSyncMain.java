@@ -1,6 +1,8 @@
 package com.poit.doc.sync;
 
 import com.ly.doc.model.ApiDoc;
+import com.poit.doc.sync.config.SmartDocBootstrap;
+import com.poit.doc.sync.config.SmartDocRunConfig;
 import com.poit.doc.sync.dataTransfer.DocSyncService;
 
 import java.io.File;

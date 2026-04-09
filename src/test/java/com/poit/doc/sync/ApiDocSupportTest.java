@@ -2,6 +2,8 @@ package com.poit.doc.sync;
 
 import com.ly.doc.model.ApiDoc;
 import com.ly.doc.model.ApiMethodDoc;
+import com.poit.doc.sync.config.SmartDocBootstrap;
+import com.poit.doc.sync.config.SmartDocRunConfig;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
