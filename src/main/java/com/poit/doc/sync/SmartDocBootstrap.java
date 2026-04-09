@@ -34,7 +34,6 @@ public final class SmartDocBootstrap {
         config.setBaseDir(cfg.getBaseDir());
 
         List<SourceCodePath> paths = new ArrayList<>();
-        List<String> src = cfg.getSourcePaths();
         String defaultPath = cfg.getBaseDir() + File.separator + "src" + File.separator + "main" + File.separator + "java";
 
         config.setSourceCodePaths(paths);
