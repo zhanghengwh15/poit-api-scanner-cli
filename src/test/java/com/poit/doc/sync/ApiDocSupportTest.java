@@ -5,8 +5,11 @@ import com.ly.doc.model.ApiMethodDoc;
 import com.poit.doc.sync.config.SmartDocBootstrap;
 import com.poit.doc.sync.config.SmartDocRunConfig;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 import org.mockito.Mockito;
 
+import java.io.File;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -17,11 +20,13 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class ApiDocSupportTest {
 
     @Test
-    void should_return_empty_list_when_roots_is_null() {
-
+    void should_return_empty_list_when_smart_doc_finds_no_controllers(@TempDir Path temp) throws Exception {
+        File base = temp.resolve("empty-module").toFile();
+        File javaRoot = temp.resolve("empty-module/src/main/java").toFile();
+        assertTrue(javaRoot.mkdirs());
 
         SmartDocRunConfig cfg = new SmartDocRunConfig();
-        cfg.setBaseDir("/Users/zhangheng/poi_tech/poit-wine-mes/poit-wine-mes-app");
+        cfg.setBaseDir(base.getAbsolutePath());
         List<ApiDoc> roots = SmartDocBootstrap.loadApiDocs(cfg);
         List<ApiDoc> result = ApiDocSupport.flattenControllerDocs(roots);
         assertTrue(result.isEmpty());

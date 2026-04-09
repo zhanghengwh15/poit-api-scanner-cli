@@ -14,9 +14,12 @@ import org.apache.maven.plugins.annotations.Mojo;
 import org.apache.maven.plugins.annotations.Parameter;
 import org.apache.maven.plugins.annotations.ResolutionScope;
 import org.apache.maven.project.MavenProject;
+import org.apache.maven.execution.MavenSession;
 
+import java.io.File;
 import java.net.MalformedURLException;
 import java.sql.SQLException;
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -32,6 +35,9 @@ public class SyncDocMojo extends AbstractMojo {
 
     @Parameter(defaultValue = "${project}", readonly = true, required = true)
     private MavenProject project;
+
+    @Parameter(defaultValue = "${session}", readonly = true, required = true)
+    private MavenSession session;
 
     @Parameter(property = "poit.doc.serviceName", required = true)
     private String serviceName;
@@ -60,6 +66,10 @@ public class SyncDocMojo extends AbstractMojo {
     @Parameter(property = "poit.doc.packageExcludeFilters")
     private String packageExcludeFilters;
 
+    /**
+     * 多个源码根（通常为各模块 {@code src/main/java} 的绝对路径），对应 Smart-doc 的 {@code SourceCodePath}。
+     * POM 中子元素名为单数 {@code sourcePath}（Maven List 惯例）。
+     */
     @Parameter
     private List<String> sourcePaths;
 
@@ -75,13 +85,13 @@ public class SyncDocMojo extends AbstractMojo {
         SmartDocRunConfig cfg = new SmartDocRunConfig();
         cfg.setProjectName(project.getName());
         cfg.setBaseDir(project.getBasedir().getAbsolutePath());
-        cfg.setSourcePaths(sourcePaths);
+        cfg.setSourcePaths(resolveSourcePaths());
         cfg.setFramework(framework);
         cfg.setPackageFilters(packageFilters);
         cfg.setPackageExcludeFilters(packageExcludeFilters);
         try {
-            cfg.setProjectClassLoader(SmartDocBootstrap.compileClasspathLoader(project.getCompileClasspathElements(),
-                    Thread.currentThread().getContextClassLoader()));
+            cfg.setProjectClassLoader(SmartDocBootstrap.compileClasspathLoader(
+                    project.getCompileClasspathElements(), Thread.currentThread().getContextClassLoader()));
         } catch (DependencyResolutionRequiredException e) {
             throw new MojoExecutionException("请先执行到至少 compile 阶段以解析依赖（requiresDependencyResolution=compile）", e);
         } catch (MalformedURLException e) {
@@ -106,5 +116,29 @@ public class SyncDocMojo extends AbstractMojo {
             throw new MojoExecutionException("文档写入数据库失败: " + e.getMessage(), e);
         }
         getLog().info("接口文档已同步至数据库");
+    }
+
+    /**
+     * 显式 {@link #sourcePaths} 优先；否则自动收集 Reactor 内各模块及仓库树下所有 {@code src/main/java}；
+     * 若仍为空则返回 {@code null}，由 {@link SmartDocBootstrap} 回退为当前模块 {@code src/main/java}。
+     */
+    private List<String> resolveSourcePaths() {
+        if (sourcePaths != null) {
+            List<String> out = new ArrayList<>();
+            for (String p : sourcePaths) {
+                if (p != null && !p.trim().isEmpty()) {
+                    out.add(new File(p.trim()).getAbsolutePath());
+                }
+            }
+            if (!out.isEmpty()) {
+                return out;
+            }
+        }
+        List<String> auto = SourceRootDiscovery.discover(session, project, getLog());
+        if (!auto.isEmpty()) {
+            getLog().info("自动发现 Smart-doc 源码根 " + auto.size() + " 个");
+            return auto;
+        }
+        return null;
     }
 }

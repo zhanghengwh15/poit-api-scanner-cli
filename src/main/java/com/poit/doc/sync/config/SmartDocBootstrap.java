@@ -32,12 +32,30 @@ public final class SmartDocBootstrap {
             config.setPackageExcludeFilters(cfg.getPackageExcludeFilters());
         }
         config.setBaseDir(cfg.getBaseDir());
+        if (cfg.getProjectClassLoader() != null) {
+            config.setClassLoader(cfg.getProjectClassLoader());
+        }
+
+        List<String> effective = new ArrayList<>();
+        List<String> configured = cfg.getSourcePaths();
+        if (configured != null) {
+            for (String p : configured) {
+                if (p != null && !p.trim().isEmpty()) {
+                    effective.add(new File(p.trim()).getAbsolutePath());
+                }
+            }
+        }
+        String defaultPath = cfg.getBaseDir() + File.separator + "src" + File.separator + "main" + File.separator + "java";
+        if (effective.isEmpty()) {
+            effective.add(defaultPath);
+        }
 
         List<SourceCodePath> paths = new ArrayList<>();
-        String defaultPath = cfg.getBaseDir() + File.separator + "src" + File.separator + "main" + File.separator + "java";
-
+        for (String p : effective) {
+            paths.add(SourceCodePath.builder().setPath(p));
+        }
         config.setSourceCodePaths(paths);
-        config.setCodePath(defaultPath);
+        config.setCodePath(effective.get(0));
 
         ApiAllData data = ApiDataBuilder.getApiData(config);
         List<ApiDoc> list = data.getApiDocList();
