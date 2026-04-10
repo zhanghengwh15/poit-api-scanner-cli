@@ -4,45 +4,70 @@
 
 ---
 
-## 使用前准备
+## 使用前准备（运行扫描器）
 
-1. **JDK 21**、**Maven 3.6+**（用于打包本工具；运行 Fat JAR 时目标环境只需 JRE 21+）。
-2. **MySQL 8**：在目标库执行建表脚本：
-
-   `src/main/resources/schema.sql`
-
-3. 数据库账号需具备对目标表的 `INSERT` / `UPDATE` 权限。
+1. **MySQL 8**：在目标库执行建表脚本 `src/main/resources/schema.sql`。
+2. 数据库账号需具备对目标表的 `INSERT` / `UPDATE` 权限。
+3. **运行方式**：若使用 **原生可执行文件**，目标机**无需**安装 Java；若使用 **Fat JAR**，运行环境需 **JRE 21+**。构建本工具所需环境见下节「构建与打包」。
 
 ---
 
-## 构建
+## 构建与打包（第一步～第四步）
 
-在本仓库根目录执行：
+本仓库支持两种产物：**GraalVM Native Image 原生可执行文件**（推荐）与 **Fat JAR**（`java -jar`）。
+
+**建议：** 在具备 **GraalVM for JDK 21** 的机器上，完成**第一步、第二步**后，**优先执行第四步**生成自包含二进制（体积小、冷启动快，适合 CI/CD 与短生命周期脚本）。**第三步**用于仅需 JVM 分发、或未安装 GraalVM 时的常规打包。
+
+### 第一步：环境准备
+
+1. 安装 **JDK 21** 或 **GraalVM for JDK 21**（构建**原生二进制**时请使用 GraalVM，且与下文 Maven 所用 JDK 一致）。
+2. 安装 **Maven 3.6+**。
+3. 构建 Native 时还需：
+   - 终端执行 `java -version`，确认输出中含 **GraalVM** 字样；
+   - 已安装 **Native Image** 组件，可执行 `native-image --version`（部分发行版需单独安装 `native-image` 组件）。
+4. 将运行 Maven 的 **`JAVA_HOME`** 指向上述 GraalVM（或至少 JDK **17+**；`native-maven-plugin` 对 Maven 进程所用 JDK 有版本要求，**推荐全程使用 GraalVM JDK 21** 以避免不一致）。
+
+### 第二步：获取源码并拉取依赖
 
 ```bash
-cd poit-api-scanner-cli   # 或你克隆后的本模块根目录
+git clone <本仓库地址>   # 若尚未克隆
+cd poit-api-scanner-cli  # 进入本模块根目录（以你本地路径为准）
+mvn dependency:resolve -q
+```
+
+首次执行会按 `pom.xml` 从中央仓库下载依赖；网络正常即可，无需额外手工安装依赖包。
+
+### 第三步：构建 Fat JAR（JVM 运行）
+
+在本模块根目录执行：
+
+```bash
 mvn clean package
 ```
 
-产物为已 Shade 的 Fat JAR，可直接运行：
+产物为已 Shade 的 **Fat JAR**，可直接运行：
 
 `target/poit-api-scanner-cli-<version>.jar`
 
-坐标（安装到本地仓库时）：
+安装到本地仓库时的 Maven 坐标：
 
 - `groupId`：`com.poit.doc`
 - `artifactId`：`poit-api-scanner-cli`
 - `version`：以本仓库 `pom.xml` 为准
 
-### （可选）GraalVM Native Image
+> 若你只需要 Fat JAR，到本步即可；**不要**加 `-Pnative`（该 profile 会跳过 Shade，主要用于下一步原生构建）。
 
-若本机已安装 **GraalVM for JDK 21** 且 `native-image` 可用，并用于执行 Maven 的 JDK 为 **17+**（建议与 GraalVM 一致），可构建本地可执行文件：
+### 第四步：构建二进制可执行文件（推荐）
+
+在本模块根目录执行：
 
 ```bash
-mvn clean package -Pnative -DskipTests
+mvn -s /Users/zhangheng/jar/settings-alibaba.xml -DskipTests=true clean package -Pnative
 ```
 
-默认可执行文件名：`poit-api-scanner`（见 `pom.xml` 中 `native` profile）。首次构建可能较慢，且部分依赖需满足 Native Image 的反射等资源要求。
+（若需跳过测试以缩短总耗时，可追加 `-DskipTests`。）
+
+**说明：** 激活 `-Pnative` 后，GraalVM 的 **AOT 编译器（Substrate VM）** 会对你工程中的代码与**编译期可达的**依赖做静态分析，将其中可静态绑定的部分编译为本地机器码，生成**自包含**可执行文件（名称见 `pom.xml` 中 `native` profile 的 `imageName`，一般为 `poit-api-scanner`，通常位于 `target/` 目录下）。该过程一般需要 **约 1～3 分钟**（视 CPU、磁盘与依赖规模而定），**首次**构建往往更久。部分第三方库若大量依赖反射、JNI、资源文件等，可能还需补充 Native Image 配置才能一次编过。
 
 ---
 
@@ -56,7 +81,25 @@ mvn clean package -Pnative -DskipTests
 
 ## 运行示例
 
-**显式指定服务名与 artifactId（不依赖本地 `pom.xml`）：**
+**优先：使用第四步产出的原生可执行文件（无需目标机安装 Java）：**
+
+```bash
+./target/poit-api-scanner \
+  --scan-dir=/path/to/your/repo-or-module-root \
+  --db-url='jdbc:mysql://127.0.0.1:3306/your_doc_db?useUnicode=true&characterEncoding=utf-8&serverTimezone=Asia/Shanghai' \
+  --db-user=root \
+  --db-password=secret \
+  --service-name=user-service \
+  --artifact-id=user-service \
+  --service-version=v1 \
+  --env=dev
+```
+
+（Windows 下可执行文件名为 `poit-api-scanner.exe`，路径仍在 `target/`。）
+
+**使用第三步产出的 Fat JAR：**
+
+显式指定服务名与 artifactId（不依赖本地 `pom.xml`）：
 
 ```bash
 java -jar target/poit-api-scanner-cli-1.0.0-SNAPSHOT.jar \
@@ -70,7 +113,7 @@ java -jar target/poit-api-scanner-cli-1.0.0-SNAPSHOT.jar \
   --env=dev
 ```
 
-**省略 `--service-name` / `--artifact-id`（从 `--scan-dir/pom.xml` 读取 `artifactId`）：**
+省略 `--service-name` / `--artifact-id`（从 `--scan-dir/pom.xml` 读取 `artifactId`）：
 
 ```bash
 java -jar target/poit-api-scanner-cli-1.0.0-SNAPSHOT.jar \
@@ -82,9 +125,11 @@ java -jar target/poit-api-scanner-cli-1.0.0-SNAPSHOT.jar \
   --env=dev
 ```
 
-查看全部参数：
+查看全部参数（JAR 与原生二进制参数相同）：
 
 ```bash
+./target/poit-api-scanner --help
+# 或
 java -jar target/poit-api-scanner-cli-1.0.0-SNAPSHOT.jar --help
 ```
 
