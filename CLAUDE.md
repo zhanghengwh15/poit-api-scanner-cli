@@ -4,49 +4,73 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Build Commands
 
-Use the project's Maven settings file for all builds:
-
 ```bash
-# Install plugin to local Maven repository
-mvn -s D:\code\respository\settings-1.8.xml clean install -DskipTests
-
-# Build standalone fat JAR (for CLI usage outside Maven)
-mvn -s D:\code\respository\settings-1.8.xml -Pstandalone clean package -DskipTests
-
 # Compile only
-mvn -s D:\code\respository\settings-1.8.xml compile
+mvn compile
+
+# Build fat JAR (for JVM execution)
+mvn clean package
+
+# Build GraalVM native image (requires GraalVM for JDK 21)
+mvn clean package -Pnative
+
+# Run tests
+mvn test
+
+# Run single test
+mvn test -Dtest=SourceRootDiscoveryTest
+
+# Skip tests during build
+mvn clean package -DskipTests
 ```
 
 ## Project Overview
 
-This is a Maven plugin (`maven-poit-doc-plugin`) that parses Java source code using [Smart-doc](https://github.com/smart-doc-group/smart-doc) and synchronizes API documentation to MySQL 8. It extracts Controller endpoints and model definitions from Spring-based projects, storing them in a structured database format.
+This is a **standalone Java CLI tool** (refactored from a Maven plugin) that scans Java source code using [Smart-doc](https://github.com/smart-doc-group/smart-doc) and synchronizes API documentation to MySQL 8. It recursively discovers `src/main/java` directories, extracts Controller endpoints and model definitions from Spring-based projects, and stores them in a structured database format with JSON fields.
+
+**Key Characteristics:**
+- **Java Version:** JDK 21
+- **CLI Framework:** picocli 4.7.5
+- **Database:** MySQL 8 with HikariCP connection pool
+- **JSON:** fastjson2
+- **Native Image:** GraalVM support via `native` profile
+- **Exit Codes:** 0=success, 1=DB error, 2=configuration error
 
 ## Architecture
 
 ```
-SyncDocMojo (Maven entry point)
+PoitApiScannerCli (CLI Entry Point)
+    ↓
+SourceRootDiscovery (Finds src/main/java directories)
+    ↓
+MavenPomArtifactIdResolver (Reads pom.xml for artifactId)
     ↓
 SmartDocBootstrap (Smart-doc engine integration)
     ↓
 ApiDocSupport (Tree flattening & model extraction)
     ↓
-DocSyncService (Database upsert)
+DocSyncService (Database upsert coordination)
+    ├→ ModelDefinitionSync (Model persistence with topological sort)
+    └→ Interface upsert/delete logic
 ```
 
 **Key Components:**
 
-- **SyncDocMojo**: Maven Mojo with `@Mojo(name="sync")`, binds to `COMPILE` phase. Requires `requiresDependencyResolution=COMPILE` to access project's compile classpath for type resolution.
-- **SmartDocBootstrap**: Wraps Smart-doc's `ApiConfig` and `ApiDataBuilder` to parse source code and produce `ApiDoc` trees.
-- **ApiDocSupport**: Flattens nested `ApiDoc` trees into controller-level docs. Extracts model fields as flat JSON with `ref` references (avoiding circular references in storage).
-- **DocSyncService**: Batch upserts interfaces and models to MySQL using `ON DUPLICATE KEY UPDATE`.
-- **StandaloneSyncMain**: CLI entry point for running outside Maven context (useful for CI/CD or ad-hoc sync).
+- **`PoitApiScannerCli`**: Main CLI entry point with picocli annotations. Handles parameter parsing, validation, and workflow orchestration. Can auto-detect `artifactId` from `pom.xml` if not explicitly provided.
+- **`SourceRootDiscovery`**: Recursively discovers `src/main/java` directories, skipping `target/`, `.git/`, `.idea/`, `node_modules/`, `build/`, and hidden directories.
+- **`MavenPomArtifactIdResolver`**: XML parser that extracts `artifactId` from `<project>` element (not from `<parent>`).
+- **`SmartDocBootstrap`**: Configures and invokes Smart-doc with source paths, project name, and framework.
+- **`ApiDocSupport`**: Flattens nested `ApiDoc` trees into controller-level docs. Extracts model fields as flat JSON with `ref` references to handle circular references.
+- **`DocSyncService`**: Orchestrates database synchronization with transaction management, model sync via `ModelDefinitionSync`, interface upsert with MD5-based change detection, and soft deletion of stale interfaces.
+- **`ModelDefinitionSync`**: Handles model persistence with topological sort to respect dependencies, converts `ref` (class names) to `ref_model_id` (database foreign keys), and uses MD5-based change detection.
 
 ## Database Schema
 
-Two tables defined in `src/main/resources/schema.sql`:
+Three tables defined in `src/main/resources/schema.sql`:
 
-- **api_interface**: Stores endpoint metadata (path, method, controller, request/response model refs)
-- **api_model_definition**: Stores class field definitions as JSON, with `ref` pointing to other model full class names
+- **`api_interface`**: Stores endpoint metadata with unique key `(service_name, env, path, method)`. JSON columns for `path_params`, `query_params`, and `raw_info`. MD5 signatures for change detection: `req_params_md5`, `res_params_md5`. Foreign keys `req_body_model_id`, `res_body_model_id` reference `api_model_definition.id`.
+- **`api_model_definition`**: Stores model definitions with unique key `(service_name, full_name, model_md5)`. `fields` JSON column with `ref_model_id` references for nested objects.
+- **`api_dictionary`**: API terminology dictionary with global and per-service scope.
 
 ## Model Reference Pattern
 
@@ -56,20 +80,26 @@ To handle circular references and nested objects, models are stored with referen
 // Example: UserDTO fields stored in api_model_definition.fields
 [
   {"name": "id", "type": "long", "desc": "User ID"},
-  {"name": "role", "type": "object", "ref": "com.example.RoleDTO"}
+  {"name": "role", "type": "object", "ref": "com.example.RoleDTO", "ref_model_id": 123}
 ]
 ```
 
-Frontend loads models recursively by following `ref` values.
+Frontend loads models recursively by following `ref_model_id` values.
 
-## Configuration Properties
+## CLI Parameters
 
-Maven plugin parameters use `poit.doc.*` property prefix for command-line overrides:
+**Required:**
+- `--scan-dir`: Scan root directory; auto-discovers `**/src/main/java`
+- `--db-url`: MySQL JDBC URL
+- `--db-user` / `--db-password`: Database credentials
+- `--service-version`: API version (e.g., `v1`)
+- `--env`: Environment (e.g., `dev` / `test` / `prod`)
 
-```bash
-mvn my-doc-plugin:sync -Dpoit.doc.serviceName=demo -Dpoit.doc.env=prod
-```
+**Conditionally Required:**
+- `--service-name` / `--artifact-id`: If not provided, they are read from `--scan-dir/pom.xml` `<artifactId>`
 
-## Plugin Goal Prefix
-
-Configured as `my-doc-plugin` in `maven-plugin-plugin` configuration. Use `mvn my-doc-plugin:sync` or full coordinates.
+**Optional:**
+- `--framework`: Smart-doc framework, default `spring`
+- `--package-filters` / `--package-exclude-filters`: Package inclusion/exclusion filters
+- `--project-name`: Display project name, defaults to last directory name of `--scan-dir`
+- `--source-path`: Explicit source roots (disables auto-discovery)
