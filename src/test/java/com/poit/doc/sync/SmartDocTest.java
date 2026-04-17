@@ -1,10 +1,7 @@
 package com.poit.doc.sync;
 
 import com.ly.doc.builder.ApiDataBuilder;
-import com.ly.doc.model.ApiAllData;
-import com.ly.doc.model.ApiConfig;
-import com.ly.doc.model.ApiDoc;
-import com.ly.doc.model.SourceCodePath;
+import com.ly.doc.model.*;
 import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 
@@ -56,6 +53,34 @@ public class SmartDocTest {
         ApiAllData data = ApiDataBuilder.getApiData(config);
 
         List<ApiDoc> controllers = ApiDocSupport.flattenControllerDocs(data.getApiDocList());
+        // 事实证明就是没有注释  swgger 的注释会覆盖掉
+
+        // 4. 遍历提取到的信息，用于存入你的系统
+        for (ApiDoc apiDoc : controllers) {
+            System.out.println("\n[Controller 名称]: " + apiDoc.getName());
+            System.out.println("[Controller 描述]: " + apiDoc.getDesc()); // 会合并 JavaDoc 和 Swagger
+
+            for (ApiMethodDoc method : apiDoc.getList()) {
+                System.out.println("\n  -> [接口路径]: " + method.getType() + " " + method.getPath());
+                System.out.println("  -> [接口名称]: " + method.getDesc()); // 会优先读取 @Operation 的 summary
+                System.out.println("  -> [接口详情]: " + method.getDetail());
+
+                // 打印请求参数
+                System.out.println("  -> [请求参数]:");
+                for (ApiParam param : method.getRequestParams()) {
+                    System.out.println("      - " + param.getField() + " (" + param.getType() + "): " + param.getDesc());
+                }
+
+                // 打印复杂的返回类型（这里演示如何跨越 ResponseEntity 解析到内部的 UserDTO）
+                System.out.println("  -> [返回参数结构]:");
+                for (ApiParam responseParam : method.getResponseParams()) {
+                    System.out.println("      - 字段: " + responseParam.getField()
+                            + " | 类型: " + responseParam.getType()
+                            + " | 描述: " + responseParam.getDesc());
+                }
+            }
+        }
+
         assertNotNull(controllers);
 
         // 对应的转换的实体类。

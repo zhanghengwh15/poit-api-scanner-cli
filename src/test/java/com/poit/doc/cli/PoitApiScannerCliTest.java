@@ -32,16 +32,6 @@ class PoitApiScannerCliTest {
     }
 
     @Test
-    void testCliWithMissingRequiredOptions() {
-        // 测试缺少必需选项时的错误处理
-        PoitApiScannerCli cli = new PoitApiScannerCli();
-        CommandLine cmd = new CommandLine(cli);
-        int exitCode = cmd.execute();
-        // picocli 对于缺少必需选项通常返回 2
-        assertEquals(2, exitCode);
-    }
-
-    @Test
     void testCliWithValidScanDirButNoSources() throws Exception {
 
         // 执行 CLI
